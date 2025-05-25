@@ -1,22 +1,41 @@
 const std = @import("std");
-const ctx = @import("ctx.zig");
+const net = std.net;
+const http = std.http;
 
-pub fn main() anyerror!void {
-    var context: ctx.Ctx = ctx.Ctx.init(std.heap.page_allocator);
+pub fn main() !void {
+    const addr = net.Address.parseIp4("127.0.0.1", 9090) catch |err| {
+        std.debug.print("An error occurred while resolving the IP address: {}\n", .{err});
+        return;
+    };
 
-    context.set_value("apple", 123);
-    context.set_value("banana", 456);
+    var server = try addr.listen(.{});
 
-    var out: i32 = 0;
-    if (context.get_value("apple", &out)) {
-        std.debug.print("apple = {}\n", .{out});
-    } else {
-        std.debug.print("apple not found\n", .{});
+    start_server(&server);
+}
+
+fn start_server(server: *net.Server) void {
+    while (true) {
+        var connection = server.accept() catch |err| {
+            std.debug.print("Connection to client interrupted: {}\n", .{err});
+            continue;
+        };
+        defer connection.stream.close();
+
+        var read_buffer: [1024]u8 = undefined;
+        var http_server = http.Server.init(connection, &read_buffer);
+
+        var request = http_server.receiveHead() catch |err| {
+            std.debug.print("Could not read head: {}\n", .{err});
+            continue;
+        };
+        handle_request(&request) catch |err| {
+            std.debug.print("Could not handle request: {}", .{err});
+            continue;
+        };
     }
+}
 
-    if (context.get_value("cherry", &out)) {
-        std.debug.print("cherry = {}\n", .{out});
-    } else {
-        std.debug.print("cherry not found\n", .{});
-    }
+fn handle_request(request: *http.Server.Request) !void {
+    std.debug.print("Handling request for {s}\n", .{request.head.target});
+    try request.respond("Hello http!\n", .{});
 }
